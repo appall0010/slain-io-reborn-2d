@@ -1,0 +1,21 @@
+[gd_scene format=3 uid="uid://ykemxxifd1lp"]
+
+[ext_resource type="Shader" uid="uid://c1y34m66wbisk" path="res://grid.gdshader" id="1_ig7tw"]
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_7dm0k"]
+shader = ExtResource("1_ig7tw")
+shader_parameter/bg_color = Color(0.8, 0.95, 0.85, 1)
+shader_parameter/grid_color = Color(0.7, 0.85, 0.75, 1)
+shader_parameter/grid_size = 64.0
+shader_parameter/line_thickness = 1.0
+
+[node name="Main" type="Node2D" unique_id=1861743095]
+
+[node name="ArenaBorders" type="StaticBody2D" parent="." unique_id=1965888522]
+
+[node name="BackgroundGrid" type="ColorRect" parent="." unique_id=1554598170]
+material = SubResource("ShaderMaterial_7dm0k")
+offset_left = -5.0
+offset_top = -1.0
+offset_right = 1299.0
+offset_bottom = 731.0
