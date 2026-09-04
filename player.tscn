@@ -2,19 +2,39 @@
 
 [ext_resource type="Script" uid="uid://b5pkyls3t7ng0" path="res://player.gd" id="1_4flbx"]
 [ext_resource type="Texture2D" uid="uid://f6by7nrjtrup" path="res://assets/player/player_body_texture.svg" id="2_onrkg"]
+[ext_resource type="Script" uid="uid://d3sjcsoy0m7e6" path="res://fist.gd" id="3_fist"]
 
 [sub_resource type="CircleShape2D" id="CircleShape2D_8vrlf"]
 radius = 31.016125
+
+[sub_resource type="CircleShape2D" id="CircleShape2D_hitbox"]
+radius = 16.0
 
 [node name="Player" type="CharacterBody2D" unique_id=118523075]
 z_index = 10
 script = ExtResource("1_4flbx")
 
 [node name="Sprite2D" type="Sprite2D" parent="." unique_id=832519794]
-scale = Vector2(0.641, 0.641)
+scale = Vector2(0.64, 0.64)
 texture = ExtResource("2_onrkg")
 
 [node name="CollisionShape2D" type="CollisionShape2D" parent="." unique_id=660118580]
 shape = SubResource("CircleShape2D_8vrlf")
 
 [node name="Camera2D" type="Camera2D" parent="." unique_id=917862738]
+
+[node name="Fist1" type="Node2D" parent="." unique_id=1571640213]
+script = ExtResource("3_fist")
+
+[node name="PunchHitbox" type="Area2D" parent="Fist1" unique_id=1036633876]
+collision_layer = 0
+collision_mask = 2
+monitoring = false
+monitorable = false
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Fist1/PunchHitbox" unique_id=1492116451]
+shape = SubResource("CircleShape2D_hitbox")
+disabled = true
+
+[node name="Fist2" type="Node2D" parent="." unique_id=1359321900]
+script = ExtResource("3_fist")

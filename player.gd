@@ -1,5 +1,5 @@
 extends CharacterBody2D
-# тест бла бла бла
+
 # ==============================================================================
 # БЛОКНОТ ДАННЫХ (ДОГМА №6: DATA-ORIENTED DESIGN)
 # ==============================================================================
@@ -15,6 +15,26 @@ var player_camera: Camera2D = null
 var srv_input_direction: Vector2 = Vector2.ZERO
 var srv_target_rotation: float = 0.0
 var srv_wants_to_punch: bool = false
+
+# ==============================================================================
+# КУЛАКИ / УДАР (визуал + хитбокс)
+# ==============================================================================
+const FIST_BASE_ANGLE: float = deg_to_rad(75.0)   # смещение кулаков от направления взгляда в покое
+const FIST_DIST_BASE: float = 36.0                # расстояние кулака от центра тела в покое (тело ~32px радиусом)
+const FIST_PUNCH_EXTRA_DIST: float = 20.0         # насколько кулак выезжает вперёд при ударе
+const FIST_PUNCH_ANGLE_TARGET: float = deg_to_rad(10.0) # к какому углу стягивается активный кулак
+const PUNCH_DURATION: float = 0.22                # секунд на полный цикл удара (вперёд-назад)
+
+var fist1: Node2D = null
+var fist2: Node2D = null
+var punch_hitbox: Area2D = null
+var punch_hitbox_shape: CollisionShape2D = null
+
+var is_punching: bool = false
+var punch_elapsed: float = 0.0
+var active_fist: int = 1        # 1 или 2 — чередуем удары, как в оригинале
+var punch_already_hit: bool = false
+var walk_wobble_time: float = 0.0
 
 # Для логирования движения (не спамить каждый кадр)
 var _last_logged_position: Vector2 = Vector2.ZERO
@@ -51,6 +71,13 @@ func _ready() -> void:
 	
 	server_raycast = get_node_or_null("RayCast2D")
 	player_camera = get_node_or_null("Camera2D")
+
+	fist1 = get_node_or_null("Fist1")
+	fist2 = get_node_or_null("Fist2")
+	punch_hitbox = get_node_or_null("PunchHitbox")
+	if punch_hitbox:
+		punch_hitbox_shape = punch_hitbox.get_node_or_null("CollisionShape2D")
+		punch_hitbox.body_entered.connect(_on_punch_hitbox_body_entered)
 	
 	GameLogger.log_event("[PLAYER] Игрок загружен. ID: %s, Камера: %s" % [name, "есть" if player_camera else "нет"])
 	
@@ -75,6 +102,9 @@ func _physics_process(delta: float) -> void:
 	rotation = srv_target_rotation
 	velocity = srv_input_direction * player_speed
 	move_and_slide()
+
+	_update_punch_state(delta)
+	_update_fists_visual(delta)
 	
 	# Логируем движение РЕЖЕ (раз в 2 секунды ИЛИ при сильном перемещении)
 	if multiplayer.is_server():
@@ -91,7 +121,6 @@ func _physics_process(delta: float) -> void:
 			set_meta("last_log_time", Time.get_ticks_msec() / 1000.0)
 	
 	if multiplayer.is_server():
-		if srv_cooldown_timer > 0.0: srv_cooldown_timer -= delta
 		_rpc_sync_position_to_clients.rpc(global_position, rotation, srv_input_direction)
 		
 	var my_local_id = multiplayer.get_unique_id()
@@ -120,12 +149,92 @@ func _gather_and_send_input() -> void:
 	
 	srv_input_direction = input_dir
 	srv_target_rotation = target_rot
+	srv_wants_to_punch = wants_punch
 	
-	if wants_punch and not multiplayer.is_server():
+	if wants_punch:
 		GameLogger.log_event("[PLAYER] Игрок %s атакует!" % name)
 	
 	if not multiplayer.is_server():
 		_submit_input_to_server.rpc(input_dir, target_rot, wants_punch)
+
+## Запускает/продолжает цикл удара и включает хитбокс в нужный момент.
+## Анимация кулаков идёт локально у всех, кто видит игрока (это чисто визуал),
+## а урон наносит только сервер (см. _on_punch_hitbox_body_entered).
+func _update_punch_state(delta: float) -> void:
+	if srv_cooldown_timer > 0.0:
+		srv_cooldown_timer -= delta
+
+	if not is_punching and srv_wants_to_punch and srv_cooldown_timer <= 0.0:
+		is_punching = true
+		punch_elapsed = 0.0
+		punch_already_hit = false
+		active_fist = 2 if active_fist == 1 else 1  # чередуем руки
+		srv_cooldown_timer = srv_punch_cooldown
+
+	if is_punching:
+		punch_elapsed += delta
+		var t: float = clamp(punch_elapsed / PUNCH_DURATION, 0.0, 1.0)
+		# треугольная кривая: 0 -> 1 (первая половина) -> 0 (вторая половина)
+		var progress: float = 1.0 - abs(t * 2.0 - 1.0)
+
+		if punch_hitbox_shape:
+			punch_hitbox.position = Vector2.RIGHT * (FIST_DIST_BASE + progress * FIST_PUNCH_EXTRA_DIST)
+			punch_hitbox_shape.disabled = progress < 0.5  # хитбокс активен только у пика удара
+
+		if t >= 1.0:
+			is_punching = false
+			if punch_hitbox_shape:
+				punch_hitbox_shape.disabled = true
+	else:
+		if punch_hitbox_shape and not punch_hitbox_shape.disabled:
+			punch_hitbox_shape.disabled = true
+
+
+## Считает локальные позиции кулаков: покачивание при ходьбе + вынос вперёд у бьющего кулака.
+func _update_fists_visual(delta: float) -> void:
+	if not fist1 or not fist2:
+		return
+
+	walk_wobble_time += delta * 8.0
+	var move_amount: float = clamp(srv_input_direction.length(), 0.0, 1.0)
+	var wobble: float = sin(walk_wobble_time) * deg_to_rad(12.0) * move_amount
+
+	var punch_t: float = 0.0
+	if is_punching:
+		var t: float = clamp(punch_elapsed / PUNCH_DURATION, 0.0, 1.0)
+		punch_t = 1.0 - abs(t * 2.0 - 1.0)
+
+	_place_fist(fist1, 1, wobble, punch_t)
+	_place_fist(fist2, 2, wobble, punch_t)
+
+
+func _place_fist(fist: Node2D, fist_index: int, wobble: float, punch_t: float) -> void:
+	var is_active: bool = is_punching and active_fist == fist_index
+	var side: float = 1.0 if fist_index == 1 else -1.0
+
+	var base_angle: float = side * FIST_BASE_ANGLE + wobble
+	var angle: float = base_angle
+	var dist: float = FIST_DIST_BASE
+
+	if is_active:
+		angle = lerp(base_angle, side * FIST_PUNCH_ANGLE_TARGET, punch_t)
+		dist = FIST_DIST_BASE + punch_t * FIST_PUNCH_EXTRA_DIST
+
+	fist.position = Vector2.RIGHT.rotated(angle) * dist
+
+
+func _on_punch_hitbox_body_entered(body: Node) -> void:
+	if not multiplayer.is_server():
+		return
+	if punch_already_hit:
+		return
+	if body == self:
+		return
+	if body.has_method("server_take_damage"):
+		punch_already_hit = true
+		body.server_take_damage(srv_damage)
+		GameLogger.log_event("[PLAYER] Игрок %s ударил %s" % [name, body.name])
+
 
 func server_take_damage(amount: float) -> void:
 	if not multiplayer.is_server(): return
