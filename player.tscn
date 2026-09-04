@@ -11,7 +11,7 @@ z_index = 10
 script = ExtResource("1_4flbx")
 
 [node name="Sprite2D" type="Sprite2D" parent="." unique_id=832519794]
-scale = Vector2(0.64, 0.64)
+scale = Vector2(0.641, 0.641)
 texture = ExtResource("2_onrkg")
 
 [node name="CollisionShape2D" type="CollisionShape2D" parent="." unique_id=660118580]
